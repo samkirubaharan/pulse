@@ -1,0 +1,23 @@
+{
+  "name": "@pulse/simulator",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Scenario runner for the LLM Drift Demo — fires scripted queries at the agent across the four demo phases (healthy, drift, novel, adversarial).",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "start": "tsx src/runner.ts",
+    "build": "tsc"
+  },
+  "dependencies": {
+    "@pulse/agent": "workspace:*",
+    "@pulse/telemetry": "workspace:*",
+    "dotenv": "^16.4.5",
+    "yaml": "^2.4.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.30",
+    "tsx": "^4.7.1",
+    "typescript": "^5.4.5"
+  }
+}

@@ -1,0 +1,225 @@
+phase: 2
+name: drift
+description: "Phase 2 — same 50 queries as Phase 1, but the system prompt is nerfed ('be brief and confident even when uncertain'; citation instruction stripped). Expect the multi-tile drift fingerprint."
+system_prompt_mode: nerfed
+inter_query_delay_ms: 150
+queries:
+  # ----- schedule (5) -----
+  - id: q001
+    text: "What time does the unconference start?"
+    expect_grounding: true
+    expected_intent_cluster: schedule
+  - id: q002
+    text: "What dates is Product UnConference 2026 on?"
+    expect_grounding: true
+    expected_intent_cluster: schedule
+  - id: q003
+    text: "When does the buildathon kick off on Day 2?"
+    expect_grounding: true
+    expected_intent_cluster: schedule
+  - id: q004
+    text: "How long does the event run each day?"
+    expect_grounding: true
+    expected_intent_cluster: schedule
+  - id: q005
+    text: "Is there an after party on Day 1?"
+    expect_grounding: true
+    expected_intent_cluster: schedule
+
+  # ----- registration (5) -----
+  - id: q006
+    text: "How do I register for the unconference?"
+    expect_grounding: true
+    expected_intent_cluster: registration
+  - id: q007
+    text: "I applied for an invite — when will I hear back?"
+    expect_grounding: true
+    expected_intent_cluster: registration
+  - id: q008
+    text: "Can my company sponsor my pass for internal approval?"
+    expect_grounding: true
+    expected_intent_cluster: registration
+  - id: q009
+    text: "Is the Builders Pass still available?"
+    expect_grounding: true
+    expected_intent_cluster: registration
+  - id: q010
+    text: "Didn't get a reply to my invite request — what should I do?"
+    expect_grounding: true
+    expected_intent_cluster: registration
+
+  # ----- pricing (5) -----
+  - id: q011
+    text: "How much is the Builders Pass?"
+    expect_grounding: true
+    expected_intent_cluster: pricing
+  - id: q012
+    text: "How much in Claude credits do I get?"
+    expect_grounding: true
+    expected_intent_cluster: pricing
+  - id: q013
+    text: "What's included in the Reserve Pass?"
+    expect_grounding: true
+    expected_intent_cluster: pricing
+  - id: q014
+    text: "Do Gmail addresses get the full $500 Claude credit?"
+    expect_grounding: true
+    expected_intent_cluster: pricing
+  - id: q015
+    text: "What's the total partner credit value across all passes?"
+    expect_grounding: true
+    expected_intent_cluster: pricing
+
+  # ----- format (5) -----
+  - id: q016
+    text: "What does the Day 1 agenda actually look like?"
+    expect_grounding: true
+    expected_intent_cluster: format
+  - id: q017
+    text: "Is this an Open Space Technology style unconference?"
+    expect_grounding: true
+    expected_intent_cluster: format
+  - id: q018
+    text: "What is a Brain Date exactly?"
+    expect_grounding: true
+    expected_intent_cluster: format
+  - id: q019
+    text: "What's the dress code?"
+    expect_grounding: true
+    expected_intent_cluster: format
+  - id: q020
+    text: "Can I attend virtually or is this in-person only?"
+    expect_grounding: true
+    expected_intent_cluster: format
+
+  # ----- session_proposal (5) -----
+  - id: q021
+    text: "Can I propose a session for Day 1?"
+    expect_grounding: true
+    expected_intent_cluster: session_proposal
+  - id: q022
+    text: "How do I pitch myself as a speaker?"
+    expect_grounding: true
+    expected_intent_cluster: session_proposal
+  - id: q023
+    text: "On Builders Day, can I bring my own problem statement?"
+    expect_grounding: true
+    expected_intent_cluster: session_proposal
+  - id: q024
+    text: "Where do the buildathon problems come from?"
+    expect_grounding: true
+    expected_intent_cluster: session_proposal
+  - id: q025
+    text: "Can I bring a team for Builders Day or is it solo only?"
+    expect_grounding: true
+    expected_intent_cluster: session_proposal
+
+  # ----- conduct (5) -----
+  - id: q026
+    text: "Is there a code of conduct for the event?"
+    expect_grounding: true
+    expected_intent_cluster: conduct
+  - id: q027
+    text: "What health and safety measures are in place?"
+    expect_grounding: true
+    expected_intent_cluster: conduct
+  - id: q028
+    text: "Is the venue accessible for wheelchair users?"
+    expect_grounding: true
+    expected_intent_cluster: conduct
+  - id: q029
+    text: "Will photographers be present at the event?"
+    expect_grounding: true
+    expected_intent_cluster: conduct
+  - id: q030
+    text: "Are there any age restrictions on attendees?"
+    expect_grounding: true
+    expected_intent_cluster: conduct
+
+  # ----- food (5) -----
+  - id: q031
+    text: "Are meals included with my pass?"
+    expect_grounding: true
+    expected_intent_cluster: food
+  - id: q032
+    text: "What are the food breaks during the day?"
+    expect_grounding: true
+    expected_intent_cluster: food
+  - id: q033
+    text: "I'm vegetarian — will there be options for me?"
+    expect_grounding: true
+    expected_intent_cluster: food
+  - id: q034
+    text: "Who do I tell about my dietary requirements?"
+    expect_grounding: true
+    expected_intent_cluster: food
+  - id: q035
+    text: "Is there coffee and tea throughout the day?"
+    expect_grounding: true
+    expected_intent_cluster: food
+
+  # ----- networking (5) -----
+  - id: q036
+    text: "How does networking work at the unconference?"
+    expect_grounding: true
+    expected_intent_cluster: networking
+  - id: q037
+    text: "Do I need to bring business cards?"
+    expect_grounding: true
+    expected_intent_cluster: networking
+  - id: q038
+    text: "How many product leaders are expected to attend?"
+    expect_grounding: true
+    expected_intent_cluster: networking
+  - id: q039
+    text: "What is the Serendipity Zone?"
+    expect_grounding: true
+    expected_intent_cluster: networking
+  - id: q040
+    text: "How do I get into a Brain Date roundtable?"
+    expect_grounding: true
+    expected_intent_cluster: networking
+
+  # ----- sponsors (5) -----
+  - id: q041
+    text: "Who are the sponsors of this year's unconference?"
+    expect_grounding: true
+    expected_intent_cluster: sponsors
+  - id: q042
+    text: "Which company is presenting the event?"
+    expect_grounding: true
+    expected_intent_cluster: sponsors
+  - id: q043
+    text: "Is Anthropic a partner this year?"
+    expect_grounding: true
+    expected_intent_cluster: sponsors
+  - id: q044
+    text: "How does my company become a sponsor?"
+    expect_grounding: true
+    expected_intent_cluster: sponsors
+  - id: q045
+    text: "Which build partners are providing credits?"
+    expect_grounding: true
+    expected_intent_cluster: sponsors
+
+  # ----- visa (5) -----
+  - id: q046
+    text: "I'm flying in from the US — do I need a visa?"
+    expect_grounding: true
+    expected_intent_cluster: visa
+  - id: q047
+    text: "How long does the Indian e-Visa take to process?"
+    expect_grounding: true
+    expected_intent_cluster: visa
+  - id: q048
+    text: "Can you send me an invitation letter for my visa application?"
+    expect_grounding: true
+    expected_intent_cluster: visa
+  - id: q049
+    text: "What documents do I need for the e-Visa?"
+    expect_grounding: true
+    expected_intent_cluster: visa
+  - id: q050
+    text: "Which airport should I fly into?"
+    expect_grounding: true
+    expected_intent_cluster: visa

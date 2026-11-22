@@ -1,0 +1,384 @@
+# LLM Drift Dashboard — Hackathon Design
+
+*v4 — five-factor drift mapping integrated. σ-bands replace CUSUM. Changelog at bottom.*
+
+## Pitch
+
+**Green dashboards lie about LLMs.**
+
+Uptime, error rate, and latency were built for deterministic software. A model that quietly gets dumber still returns HTTP 200 — it just takes more turns, burns more tokens, and leaves a lasting dent in your brand. Guardrails stop incidents; they don't repair the customer experience that led to one. And while you're watching the classic four metrics, customers are using AI to craft prompts your agents have never seen.
+
+This demo surfaces the observability signals that catch all of that — before the customer does.
+
+> **The one line:** *"Your LLM is drifting, your dashboard is green, and your customer already knows."*
+
+**Backdrop:** Sam K M, *"Securing Your LLM Tooling Against Silent Drift — Learning Alongside AMD"* (Medium, 2026). The narrative premise is published; this demo shows *what you measure*.
+
+**Venue:** The Product Folks Unconference 2026 hackathon (`unconference.theproductfolks.com`).
+
+## What we're building
+
+A three-surface observability layer sitting on top of a single stream of agent spans.
+
+| Surface | For | What it answers |
+|---|---|---|
+| **Observe** | PMs, product owners | How is the agent behaving? What do customers actually ask? Where are we blind? |
+| **Alert** | SRE, on-call | Is something critical going wrong *right now* — drift, grounding bypass, cache miss, loops, budget, injection? |
+| **Debug** | Engineers | What happened on *this specific trace*? (Extends LangSmith / Arize — we focus on the jump from Alert → Trace with behavioural context attached.) |
+
+One data model (spans), three views, one loop:
+
+> **Observe** surfaces a pattern → **Alert** fires when it crosses a line → **Debug** pinpoints the trace → fix → **Observe** confirms.
+
+Three competitors own one stage each; nobody owns the loop.
+
+## Demo subject: Customer Support Agent for Product Unconference
+
+We don't build a chat UI. We build the *observed system* — a Customer Support Assistant for The Product Folks Unconference 2026 — and simulate user traffic against it. The dashboard is the star.
+
+### Agent architecture (minimal, so spans are clean)
+
+```
+userQuery
+  → retrieve(topK=4)           [span: retrieval, with doc ids + scores]
+  → maybe call_tool            [span: tool_call, name + args + result]
+  → LLM(system + ctx + query)  [span: llm_call, model + tokens + cost + latency + cache_reads]
+  → response
+  → judge(response, ctx)       [span: judge, score + rationale]  (async, Claude Sonnet 4.6)
+```
+
+- Plain TypeScript, no LangChain — fewer layers = cleaner spans.
+- Three tools: `search_schedule`, `check_registration`, `escalate_to_human`.
+- Retrieval: in-memory cosine over `@xenova/transformers` MiniLM embeddings. 15–25 markdown KB docs; a vector store is overkill.
+
+### Knowledge Base
+
+Raw content fetched by the data-collector agent and stored at `data/kb_raw.md` (2,014 words, 4 of 5 URLs reachable; `/speedrun` behind a login wall). Source URLs:
+
+1. `https://unconference.theproductfolks.com/`
+2. `https://unconference.theproductfolks.com/speedrun`  *(login wall)*
+3. `https://www.theproductfolks.com/product-unconference-2026`
+4. `https://unconference.theproductfolks.com/faq`  *(additional, rich FAQ)*
+5. `https://www.theproductfolks.com/unconference-26-visa-assistance`  *(additional, intl attendees)*
+
+Topics seeded as separate markdown files for the agent's KB:
+
+- What the unconference is; Open Space format
+- Date, venue (as published — note deliberate address secrecy), logistics
+- Who should attend
+- Registration & pricing (Builders Pass ₹1,999 + invite passes)
+- Session proposals, agenda-setting, facilitators
+- Code of conduct
+- Food, breaks, networking format
+- Sponsors, partners
+- Post-event resources
+- Visa assistance for international attendees
+
+### Deliberate KB gaps (real, observed from the live site)
+
+Confirmed holes from the crawl — not invented. These power Phase 3. The venue address is deliberately withheld pre-confirmation; the rest are genuine omissions.
+
+| Gap | Question the agent can't ground |
+|---|---|
+| **Refund policy** (Builders Pass ₹1,999, no refund terms published) | *"Can I get a refund if I can't make it?"* |
+| **Waitlist** (3 of 4 pass tiers sold out, no notify mechanism) | *"Any way to be notified if a spot opens?"* |
+| **Venue address** (withheld pre-confirmation, by design) | *"Where exactly is it?"* |
+| **Credit distribution** (first-come at venue, no late-arrival policy) | *"What if I arrive after credits are handed out?"* |
+| **Organiser cancellation / postponement policy** | *"What happens if the event is called off?"* |
+| **Code of conduct** (no formal document, no reporting mechanism) | *"Who do I report harassment to?"* |
+| **Childcare / family** (completely absent) | *"Can my 10-year-old attend with me?"* |
+
+(v3: swapped Accessibility — which has a vague line on-site — for Code of Conduct, a cleaner absence with safety weight. Observed gaps outperform invented ones on stage because the audience recognises them.)
+
+## The demo arc (≈60 seconds)
+
+Four phases, ~15 seconds each. Each has a line the speaker can read aloud, a mechanical action, the dashboard reaction, and the one insight the PM should leave with.
+
+### Phase 1 — Healthy (hold on the green strip, seed the baselines)
+- **Say:** *"Here's the agent running healthy. Uptime 100, latency flat, zero errors. If this is your dashboard, you're done, right?"*
+- **Do:** Boot the dashboard. Hold on the green strip for **5 seconds before any traffic** so the audience registers it. Then fire 50 realistic attendee queries. This also seeds the σ-band baselines on all 5 drift tiles.
+- **Dashboard:** Green strip unchanged. Below it: all 5 drift tiles show healthy means with σ-bands forming. Grounding healthy, judge-score strong.
+- **PM takeaway:** The green strip is the baseline lie you're about to see broken.
+
+### Phase 2 — Drift injected (prompt-nerf)
+- **Say:** *"Same model, same traffic. I've nudged the system prompt — 'be brief and confident'. Watch the top strip. Watch what's below it."*
+- **Do:** Strip "cite the retrieved docs" from the system prompt; inject "be brief and confident even when uncertain". Rerun the same 50 queries.
+- **Dashboard:** **Green strip still green.** Below it: **three σ-bands pop at once** — output tokens up (confident mode), tool_calls composition shifts (retrieval dropped), turn count rises on wrong-answer retries. Alert cards fire with the AMD-style multi-tile fingerprint.
+- **PM takeaway:** Classic metrics will not surface silent degradation. The drift fingerprint lives across *several* metrics at once — that's why single-metric thresholds miss it.
+
+### Phase 3 — Healthy model, world still shifts
+- **Say:** *"Prompt restored. Model is fine. But customers are asking things the KB was never built for."*
+- **Do:** Restore the healthy prompt. Fire 10 queries on real KB gaps (refund, waitlist, childcare, code of conduct).
+- **Dashboard:** All 5 drift tiles return to baseline. Judge-score recovers. But the **Novel-Intent inbox** fills with queries grouped by nearest KB doc.
+- **PM takeaway:** Drift isn't just your model regressing — it's the world shifting under you. Your KB has a half-life.
+
+### Phase 4 — Adversarial
+- **Say:** *"And five visitors with other intentions."*
+- **Do:** Run 5 prompt-injection attempts.
+- **Dashboard:** Prompt-Injection alert fires with the matched pattern and the trace link.
+- **PM takeaway:** Observability picks up what guardrails let through, and tells you *where* it tried to land.
+
+Every Alert card is self-sufficient (spec in the next section). If a PM leaves the room without clicking, they still left with the verdict.
+
+## Alert card spec
+
+A PM won't click through a 60-second demo. Every card delivers the verdict *before* the click:
+
+- **Headline** — what fired. *"Output tokens +23% over baseline σ-band — detector: Chattiness"*
+- **Where** — nearest KB doc or intent cluster. *"on refund-ish queries → nearest match: `09-refunds.md`, similarity 0.31"*
+- **Why** — 1-line judge rationale from the worst sample. *"answer not supported by retrieved context"*
+- **Trend** — sparkline of the tripped metric with its σ-band shaded
+- **Scope** — "N similar traces" count, linking to Debug
+- **Companion metric** (where relevant) — for paired signals like cache invalidation, show both lines on the sparkline so the paired-signal logic is visible
+
+Verdict without a click. Click for proof.
+
+## Observability primitives
+
+### Span schema
+
+```json
+{
+  "trace_id": "uuid",
+  "span_id": "uuid",
+  "parent_span_id": "uuid|null",
+  "kind": "retrieval|tool_call|llm_call|judge",
+  "start_ts": "iso",
+  "end_ts": "iso",
+  "latency_ms": 412,
+  "attrs": {
+    "model": "claude-haiku-4-5",
+    "input_tokens": 1234,
+    "output_tokens": 456,
+    "cache_read_tokens": 58000,
+    "cost_usd": 0.0012,
+    "tool.name": "search_schedule",
+    "tool.count_this_trace": 1,
+    "turns_this_trace": 2,
+    "retrieval.hits": [{"doc_id": "kb/05-open-space.md", "score": 0.82}],
+    "judge.score": 0.87,
+    "judge.rationale": "answer grounded in retrieved docs; addresses the ask",
+    "nearest_doc": "kb/09-refunds.md",
+    "nearest_score": 0.31,
+    "user.query": "...",
+    "response.text": "..."
+  }
+}
+```
+
+### The 5 drift factors (foundation layer, per call)
+
+From the Medium piece. These are the universal numeric signals every LLM call emits, independent of agent type. All use σ-bands over N-run baselines, not hardcoded thresholds.
+
+| # | Factor | What it catches | Stat rule |
+|---|---|---|---|
+| 1 | **Turn count** | Agent silently adding iterations per task | σ-band; step-ups accepted as "new normal" after stabilising (audit-able, not auto-alerted) |
+| 2 | **Output tokens** | Cost creep from chattier responses while content stays correct | σ-band over N runs |
+| 3 | **Input tokens + `cache_read_tokens`** (paired) | Real cache invalidation vs noisy final-turn variation | Read as a pair — alert only when **both** move |
+| 4 | **Latency** | Backend wobble vs real regression | Wider σ-band + **N consecutive breaches** before firing |
+| 5 | **Tool calls** (count + composition) | Behavioural shift — the "Read:Edit ratio" AMD spotted at 6,000-session scale | σ-band on count; distributional shift on composition |
+
+### Statistical methodology (non-negotiable)
+
+- **σ-band over seeded baselines** (mean ± k·σ from N=5+ runs), not hardcoded ±%.
+- **Distributional gates, not single-sample thresholds** — a single sample never fires an alert.
+- **Multi-metric pairing** — some signals mean nothing alone. Factor #3 is the canonical case.
+- **Consecutive-breach rule** — especially for latency, requires ≥3 consecutive out-of-band to fire.
+- **Step-change tolerance** — if a metric establishes a new stable plateau, the baseline rebases rather than paging forever (factor #1).
+
+### Detectors (8 — 5 derived from factors + 3 semantic add-ons)
+
+Derived from the 5 drift factors:
+
+1. **Chattiness** — factor #2 σ-breach (output tokens up without correctness change).
+2. **Cache invalidation** — factor #3 **paired** breach (input tokens up AND cache_reads down together).
+3. **Backend regression** — factor #4 breach for N consecutive calls.
+4. **Behavioural shift** — factor #5 composition change. The AMD fingerprint.
+5. **Turn stickiness** — factor #1 step-up; audit-able entry, not an auto-alert.
+
+Semantic add-ons (agent-specific, built on retrieval + judge spans):
+
+6. **KB Bypass** — specialisation of factor #5 where the retrieval tool is absent from a factual-query trace.
+7. **Low Grounding → Novel-Intent** — top retrieval hit below similarity floor; feeds the Novel-Intent inbox.
+8. **Prompt Injection** — user query matches injection patterns (keyword + classifier).
+
+*Hallucination-under-RAG dropped as a standalone detector — too noisy, too hard to seed reliably. Surfaced instead as a tag inside the judge's rationale, which appears on the Alert card.*
+
+### Observe tiles (8 — 5 primary + 3 semantic)
+
+**The 5 primary (drift factors):**
+
+1. **Turn count per task** — line chart with σ-band
+2. **Output tokens per call** — line chart with σ-band + $ overlay
+3. **Input tokens + cache_read_tokens** — two-line chart, σ-band on both (the paired-signal tile)
+4. **Latency** — line chart with wider σ-band and an "N consecutive" indicator
+5. **Tool calls per task** — σ-band on count + stacked bar on composition
+
+**Semantic add-ons:**
+
+6. **Grounding %** — derived from retrieval scores
+7. **Novel-Intent inbox** — queries whose top retrieval score fell below the Low-Grounding threshold, grouped by nearest KB doc
+8. **Traditional metrics strip (top, always green)** — the visual argument of the whole product
+
+## Drift-injection mechanism (locked on Day 1)
+
+The drift phase is the single point of failure — if Phase 2 doesn't pop on stage, the whole arc collapses. Locked approach:
+
+- **Healthy prompt**: full system prompt with "cite retrieved docs when answering factual questions".
+- **Nerfed prompt**: strip the citation instruction; inject "be brief and confident even when uncertain".
+- **Expected multi-tile fingerprint** when nerfed: output tokens ↑ (chattier confident mode), tool_calls composition shifts (retrieval drops → KB Bypass), turn count ↑ on wrong-answer retries. Three tiles pop at once — a rehearsed signature.
+- **Day 1 A/B script**: run both on the same 50 queries, confirm the fingerprint shows across ≥2 tiles. Tune severity (e.g., add "don't hedge") until all three pop reliably.
+
+Model-swap (Haiku 4.5 → older SKU) kept as a *fallback lever only* — less controllable, risks a flat Phase 2.
+
+## Stack
+
+| Layer | Pick | Why |
+|---|---|---|
+| Agent runtime | Node.js + TypeScript | One language across agent + dashboard |
+| LLM (agent, healthy) | Claude Haiku 4.5 | Fast, cheap |
+| LLM (agent, drift) | Same model, nerfed prompt (locked) | Controllable, reproducible |
+| LLM (judge) | **Claude Sonnet 4.6** | Higher-quality scoring; runs offline in batches |
+| Embeddings | `@xenova/transformers` (MiniLM) | Local, free, no API |
+| Dashboard framework | Next.js 14 (App Router) | One process for UI + API + cron; MIT |
+| UI | shadcn/ui + Tremor + Tailwind | Dashboard components out of the box |
+| Charts | Recharts (via Tremor) | Line / area / bar + shaded bands for σ |
+| Store | DuckDB (single file, `@duckdb/node-api`) | Column-store speed on span data, zero ops |
+| Ingestion | Next.js API route `POST /api/spans` | No OTel collector / broker |
+| Telemetry SDK | Hand-rolled TS wrapper (~50 lines) | Wraps Anthropic SDK + retrieval + tool calls; emits all 5 numeric factors |
+| Alerting | `node-cron` → in-app bell (+ optional Slack webhook) | Simple, free |
+| Stats | `simple-statistics` + hand-rolled σ-band + composition-shift tests | σ-band is mean + k·σ; composition is χ² or Jensen-Shannon over tool frequencies |
+
+All MIT / Apache 2.0. Runs locally with `pnpm dev`. Dashboard viewed in **Chrome at `localhost:3000`**.
+
+## Folder layout
+
+```
+pulse/
+├── DESIGN.md                     ← this file
+├── pnpm-workspace.yaml
+├── apps/
+│   ├── agent/                    ← Customer Support Assistant
+│   │   ├── kb/*.md
+│   │   ├── src/agent.ts
+│   │   ├── src/tools.ts
+│   │   └── src/retrieval.ts
+│   ├── simulator/                ← scenario yamls + runner
+│   │   ├── scenarios/
+│   │   │   ├── phase1_healthy.yaml
+│   │   │   ├── phase2_drift.yaml
+│   │   │   ├── phase3_novel.yaml
+│   │   │   └── phase4_adversarial.yaml
+│   │   └── src/runner.ts
+│   └── dashboard/                ← Next.js + Tremor
+│       ├── app/(observe)/page.tsx
+│       ├── app/alerts/page.tsx
+│       ├── app/traces/[id]/page.tsx
+│       └── app/api/spans/route.ts
+├── packages/
+│   └── telemetry/                ← span SDK used by agent
+└── data/
+    ├── spans.duckdb
+    ├── baselines.json            ← seeded σ-band baselines (per tile)
+    └── kb_raw.md                 ← data-collector output
+```
+
+## Non-goals / scope cuts
+
+- No real chat UI for the agent — we simulate.
+- No LangChain / LangGraph / LlamaIndex — vanilla SDK for trace fidelity.
+- No OTel collector or external broker.
+- No auth, multi-tenancy, or RBAC.
+- No persistent production deployment yet. Local-first; Vercel deploy only after confirmation.
+- No intent clustering (k-means / HDBSCAN). Nearest-doc + similarity floor does the job.
+- No standalone hallucination-under-RAG detector. Judge rationale carries it.
+- No hardcoded ±% thresholds. All drift tiles are σ-band-gated.
+- No single-sample alerts. Consecutive-breach rule everywhere.
+- Debug view is thin — it shows the trace, not a full IDE. The alpha is the Alert-card → Trace hop with behavioural context pinned.
+
+## Open questions
+
+- **Judge frequency** — every response, every 10th, or only on flagged queries? (Cost vs. coverage.)
+- **Baseline N** — 5 runs matches the Medium piece; is that enough on-stage, or do we pre-seed N≥20 before the demo for tighter σ?
+- **Alert delivery for the demo** — in-app bell only, or wire a real Slack webhook for theatre?
+
+## Success criteria for the demo
+
+The pitch landed if, by the end of 60 seconds:
+
+- [ ] At least one PM says some version of *"my dashboard looks exactly like that"*.
+- [ ] The green strip stays visibly green through Phase 2 while **multiple drift tiles** fire below it. (The multi-tile fingerprint is the AMD-grade proof.)
+- [ ] An engineer in the room asks about the Alert → Trace hop, or about σ-band tuning.
+- [ ] Novel-Intent inbox gets pointed at — proves drift isn't only model regression.
+- [ ] Nobody asks *"isn't this just LangSmith?"* — and if they do, the one-line answer (*"LangSmith is the trace; we're the loop around it"*) ends the question.
+
+## Pre-demo checklist (the morning of)
+
+- [ ] `pnpm dev` starts clean; dashboard loads at `localhost:3000` in **Chrome**, fullscreen.
+- [ ] DuckDB file reset to a known-good seed; `baselines.json` pre-seeded from N≥5 healthy runs.
+- [ ] Phase 1 completes locally in <15s and re-seeds the σ-bands cleanly.
+- [ ] Anthropic API key live; Haiku 4.5 and Sonnet 4.6 both reachable (dry-run one of each).
+- [ ] Both system prompts (healthy + nerfed) saved as files; toggle tested end-to-end.
+- [ ] All 4 scenario YAMLs run without a thrown exception. Phase 2 reliably trips **≥2 drift tiles** on reruns.
+- [ ] σ-bands on all 5 primary tiles visibly rendered — not hugging zero, not pegged.
+- [ ] Browser zoom set so the Alert card is legible from the back row.
+- [ ] Laptop on power. Wi-Fi tested on venue network, phone hotspot armed as backup.
+- [ ] Browser notifications and Slack muted; only the dashboard bell should ping.
+
+## Glossary (for the PM audience)
+
+- **Span** — one timestamped step inside a single agent run (retrieval, tool call, LLM call, judge). A trace is a tree of spans.
+- **Grounding** — whether an LLM answer is actually supported by the documents it retrieved. Low grounding = answering from memory or vibes.
+- **KB bypass** — the agent produced a factual answer without first consulting the knowledge base. A red flag on anything factual.
+- **Judge** — a second LLM (here, Sonnet 4.6) that scores each answer against its context. Cheap, offline, async.
+- **Novel intent** — a question whose closest KB doc is still far away. Not a bug in the model — a gap in the world you built for.
+- **σ-band (sigma-band)** — the mean of a metric ± k standard deviations, computed from a baseline of N runs. A metric sitting outside its σ-band is unusual; sitting outside for N consecutive samples is an alert.
+- **Baseline** — the mean + stddev computed from N runs of the same prompts in a healthy state. Everything is measured relative to this, not to a hardcoded limit.
+- **Paired signal** — two metrics that only mean something together (e.g., input tokens ↑ + cache_reads ↓ = real cache miss; input tokens ↑ alone = probably noise).
+- **Prompt injection** — a user query engineered to override the agent's instructions (*"ignore prior instructions and..."*).
+
+---
+
+### v2 changelog
+
+Integrated from Opus review:
+- Phase 1 opens with a 5-second hold on the green strip (sets up the contradiction).
+- Phase 3 reframed as "healthy model, world still shifts" (bridges to Novel Intent).
+- Alert card spec added — delivers the verdict before the click (PM-first).
+- Drift injection locked to prompt-nerf, not model swap.
+- Detectors reduced to 6 (hallucination-under-RAG → judge rationale tag).
+- Intent cluster → nearest-doc + similarity floor (no scatter / k-means).
+- CUSUM to one chart only (judge-score).
+
+Integrated from KB collection:
+- Deliberate gaps replaced with 7 real, observed holes on the live site.
+- Richer source list (Visa assistance page, FAQ page added).
+
+### v3 changelog
+
+Enhancement pass for demo readiness:
+- Pitch tightened; added the quotable one-liner (*"green, drifting, customer knows"*).
+- Demo arc converted from a 3-column table into four phase blocks with a read-aloud line, action, dashboard reaction, and PM takeaway each.
+- KB gaps table: swapped Accessibility (has a vague on-site line) for Code of Conduct (fully absent, safety-adjacent, stronger demo signal).
+- Alert card spec tightened; added the *"Verdict without a click. Click for proof."* line.
+- Added **Success criteria** section — what proves the pitch landed.
+- Added **Pre-demo checklist** — morning-of readiness gate.
+- Added **Glossary** — CUSUM, grounding, span, judge, novel intent, KB bypass, prompt injection.
+- Pitch now explicitly notes the Medium backdrop and reframes this demo as *showing what you measure*, not re-proving drift.
+
+### v4 changelog
+
+Five-factor drift mapping from the Medium article:
+- Added **The 5 drift factors** section — turn count, output tokens, input+cache (paired), latency, tool calls — the universal numeric telemetry every LLM call emits.
+- Added **Statistical methodology** section — σ-band over baselines, distributional gates, multi-metric pairing, consecutive-breach rule, step-change tolerance.
+- **Detectors rewritten (8 total):** 5 derived from factors (Chattiness, Cache Invalidation, Backend Regression, Behavioural Shift, Turn Stickiness) + 3 semantic add-ons (KB Bypass, Low-Grounding→Novel-Intent, Prompt Injection).
+- **Observe tiles rewritten (8 total):** 5 primary (drift factors, each σ-banded) + Grounding % + Novel-Intent inbox + green traditional strip.
+- **CUSUM removed everywhere** and replaced with σ-band. Stack `Stats` row updated. Glossary swaps CUSUM entry for σ-band / Baseline / Paired-signal entries.
+- Span schema extended with `latency_ms`, `input_tokens`, `output_tokens`, `cache_read_tokens`, `tool.count_this_trace`, `turns_this_trace` — everything the 5 factors need.
+- Alert card gains a **companion-metric** row for paired signals (e.g., cache invalidation).
+- Phase 2 reframed to showcase the **multi-tile fingerprint** — three tiles popping together, not a single falling line (the AMD signature).
+- Pre-demo checklist updated: σ-bands pre-seeded; Phase 2 must trip ≥2 tiles on rerun.
+- Folder layout adds `data/baselines.json` — seeded σ-band baselines per tile.
+- Non-goals pins down: no hardcoded ±%, no single-sample alerts.
+
+*Status: v4 published. Ready for scaffolding.*

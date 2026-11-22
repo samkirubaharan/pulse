@@ -1,0 +1,49 @@
+phase: 3
+name: novel
+description: "Phase 3 — healthy model, world still shifts. 10 queries hitting the 7 real KB gaps identified in DESIGN.md, plus 3 adjacent variations. Should surface in the Novel-Intent inbox."
+system_prompt_mode: healthy
+inter_query_delay_ms: 150
+queries:
+  # ----- 7 verbatim from DESIGN.md's "Deliberate KB gaps" table -----
+  - id: q001
+    text: "Can I get a refund if I can't make it?"
+    expect_grounding: false
+    expected_intent_cluster: "gap:refund"
+  - id: q002
+    text: "Any way to be notified if a spot opens?"
+    expect_grounding: false
+    expected_intent_cluster: "gap:waitlist"
+  - id: q003
+    text: "Where exactly is it?"
+    expect_grounding: false
+    expected_intent_cluster: "gap:venue"
+  - id: q004
+    text: "What if I arrive after credits are handed out?"
+    expect_grounding: false
+    expected_intent_cluster: "gap:credits"
+  - id: q005
+    text: "What happens if the event is called off?"
+    expect_grounding: false
+    expected_intent_cluster: "gap:cancellation"
+  - id: q006
+    text: "Who do I report harassment to?"
+    expect_grounding: false
+    expected_intent_cluster: "gap:conduct"
+  - id: q007
+    text: "Can my 10-year-old attend with me?"
+    expect_grounding: false
+    expected_intent_cluster: "gap:childcare"
+
+  # ----- 3 plausible adjacent gap questions -----
+  - id: q008
+    text: "If my Builders Pass payment bounces, how do I get my ₹1,999 back?"
+    expect_grounding: false
+    expected_intent_cluster: "gap:refund"
+  - id: q009
+    text: "Is there a nursing room for parents attending with infants?"
+    expect_grounding: false
+    expected_intent_cluster: "gap:childcare"
+  - id: q010
+    text: "What's the venue's street address so I can book a nearby hotel?"
+    expect_grounding: false
+    expected_intent_cluster: "gap:venue"
