@@ -14,7 +14,7 @@ const head = `<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>LLM Drift Dashboard — Design</title>
+<title>Pulse — Design</title>
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <style>
   :root { color-scheme: light; }

@@ -2,7 +2,7 @@
   "name": "pulse",
   "version": "0.1.0",
   "private": true,
-  "description": "LLM drift observability demo — Customer Support Agent for Product Unconference, three-surface dashboard (Observe / Alert / Debug).",
+  "description": "Pulse — observability for LLMs. Customer Support Agent for Product Unconference with a three-surface dashboard (Observe / Alert / Debug).",
   "packageManager": "pnpm@9.0.0",
   "scripts": {
     "dev": "pnpm --filter dashboard dev",

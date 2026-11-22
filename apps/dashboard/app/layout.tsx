@@ -1,11 +1,11 @@
 import type { Metadata } from 'next';
-import Link from 'next/link';
 import './globals.css';
+import Nav from '@/components/Nav';
 
 export const metadata: Metadata = {
-  title: 'LLM Drift Dashboard',
+  title: 'Pulse — Observability for LLMs',
   description:
-    'Observe / Alerts / Debug — a three-surface dashboard for silent LLM drift.',
+    'Pulse: observability for LLMs. Observe / Alerts / Debug on top of a single stream of agent spans.',
 };
 
 export default function RootLayout({
@@ -15,43 +15,37 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body className="min-h-screen bg-gray-50 text-gray-900">
-        <header className="sticky top-0 z-20 border-b border-gray-200 bg-white/80 backdrop-blur">
+      <body className="min-h-screen bg-gray-50 text-gray-900 antialiased">
+        <header className="sticky top-0 z-20 border-b border-gray-200 bg-white/85 backdrop-blur-md">
           <div className="mx-auto flex w-full max-w-[1600px] items-center justify-between px-6 py-3">
             <div className="flex items-center gap-3">
-              <div className="h-7 w-7 rounded-md bg-gradient-to-br from-blue-500 to-indigo-600" />
+              <span className="relative inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-sky-50">
+                <svg
+                  className="h-5 w-5 text-sky-600"
+                  viewBox="0 0 32 32"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={2.5}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden
+                >
+                  <path d="M3 16h5l2-7 4 14 3-10 2 4h10" />
+                </svg>
+              </span>
               <div>
-                <div className="text-sm font-semibold leading-none">
-                  LLM Drift Dashboard
+                <div className="text-sm font-semibold leading-none tracking-tight text-gray-900">
+                  Pulse
                 </div>
-                <div className="mt-0.5 text-xs text-gray-500">
-                  Observe · Alert · Debug
+                <div className="mt-1 text-[11px] font-medium uppercase tracking-wider text-gray-500">
+                  Observability for LLMs
                 </div>
               </div>
             </div>
-            <nav className="flex items-center gap-1 text-sm">
-              <Link
-                href="/"
-                className="rounded-md px-3 py-1.5 text-gray-700 hover:bg-gray-100"
-              >
-                Observe
-              </Link>
-              <Link
-                href="/alerts"
-                className="rounded-md px-3 py-1.5 text-gray-700 hover:bg-gray-100"
-              >
-                Alerts
-              </Link>
-              <span
-                className="rounded-md px-3 py-1.5 text-gray-400"
-                title="Debug opens from an alert or trace link"
-              >
-                Debug
-              </span>
-            </nav>
+            <Nav />
           </div>
         </header>
-        <main className="mx-auto w-full max-w-[1600px] px-6 py-6">
+        <main className="mx-auto w-full max-w-[1600px] px-6 py-8">
           {children}
         </main>
       </body>

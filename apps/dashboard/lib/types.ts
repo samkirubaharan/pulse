@@ -60,7 +60,8 @@ export interface StatsResponse {
   latency_ms: TileStat & { consecutive_breaches: number };
   tool_call_count: TileStat;
   tool_composition: { name: string; count: number }[];
-  grounding_pct: { current: number; series: TilePoint[] };
+  grounding_pct: { current: number; series: TilePoint[] }; // retrieval-side grounding
+  judge_score_pct: TileStat & { current: number }; // generation-side grounding (Sonnet judge, 0-100)
   novel_intent: { query: string; nearest_doc: string; score: number; t: string }[];
   traffic: {
     uptime_pct: number;
