@@ -99,13 +99,30 @@ export async function GET() {
   for (const t of traces) for (const n of t.tool_names) compMap[n] = (compMap[n] ?? 0) + 1;
   const composition = Object.entries(compMap).map(([name, count]) => ({ name, count }));
 
-  // --- 6. Grounding % ---
+  // --- 6a. Grounding % (retrieval-side: query↔doc similarity) ---
   const groundingSeries: TilePoint[] = traces
     .filter((t) => t.nearest_score != null)
     .map((t) => ({ t: t.last_ts, value: Math.round((t.nearest_score ?? 0) * 100) }));
   const groundingPct = groundingSeries.length
     ? groundingSeries[groundingSeries.length - 1].value
     : 0;
+
+  // --- 6b. Judge score % (generation-side: answer↔context fidelity) ---
+  // Sonnet scores 0-1; we display 0-100 to share a scale with the band.
+  const judgePoints: TilePoint[] = spans
+    .filter(
+      (s) =>
+        s.kind === 'judge' && typeof s.attrs?.['judge.score'] === 'number',
+    )
+    .map((s) => ({
+      t: s.start_ts,
+      value: Math.round((s.attrs['judge.score'] as number) * 100),
+    }));
+  const judgeStat = {
+    points: judgePoints,
+    band: baselines['judge_score'] ?? emptyBand(),
+    current: judgePoints.length ? judgePoints[judgePoints.length - 1].value : 0,
+  };
 
   // --- 7. Novel-Intent inbox ---
   const novel = traces
@@ -151,6 +168,7 @@ export async function GET() {
     tool_call_count: toolStat,
     tool_composition: composition,
     grounding_pct: { current: groundingPct, series: groundingSeries },
+    judge_score_pct: judgeStat,
     novel_intent: novel,
     traffic,
     output_cost: outputCost,

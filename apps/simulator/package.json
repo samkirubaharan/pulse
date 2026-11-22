@@ -2,7 +2,7 @@
   "name": "@pulse/simulator",
   "version": "0.1.0",
   "private": true,
-  "description": "Scenario runner for the LLM Drift Demo — fires scripted queries at the agent across the four demo phases (healthy, drift, novel, adversarial).",
+  "description": "Pulse — scenario runner that fires scripted queries at the agent across the four demo phases (healthy, drift, novel, adversarial).",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {

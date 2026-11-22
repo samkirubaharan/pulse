@@ -14,6 +14,7 @@ const DEFAULT_METRICS = [
   'cache_read_tokens',
   'latency_ms',
   'tool_call_count',
+  'judge_score',
 ];
 
 function baselinesPath(): string {
@@ -64,7 +65,8 @@ function meanStd(xs: number[]): { mean: number; stddev: number; n: number } {
 /**
  * Reduce spans into the metric vectors each baseline needs. Per-call metrics
  * (tokens, latency) use one sample per llm_call; per-trace metrics (turn_count,
- * tool_call_count) use one sample per distinct trace_id.
+ * tool_call_count) use one sample per distinct trace_id; judge_score comes from
+ * judge spans (0-1 → 0-100 scale for display consistency with the tile).
  */
 function metricsFromSpans(spans: Span[]): Record<string, number[]> {
   const out: Record<string, number[]> = {
@@ -74,6 +76,7 @@ function metricsFromSpans(spans: Span[]): Record<string, number[]> {
     cache_read_tokens: [],
     latency_ms: [],
     tool_call_count: [],
+    judge_score: [],
   };
 
   // Per-trace aggregation containers.
@@ -101,6 +104,13 @@ function metricsFromSpans(spans: Span[]): Record<string, number[]> {
     }
     if (s.kind === 'tool_call') {
       trace.toolCalls += 1;
+    }
+    if (s.kind === 'judge') {
+      const score = s.attrs?.['judge.score'];
+      if (typeof score === 'number') {
+        // store as percentage so the tile/baseline share a single scale
+        out.judge_score.push(score * 100);
+      }
     }
   }
 

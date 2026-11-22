@@ -9,3 +9,6 @@ build/
 .DS_Store
 data/spans.duckdb
 data/spans.duckdb.wal
+apps/dashboard/data/spans.duckdb
+apps/dashboard/data/spans.duckdb.wal
+apps/dashboard/data/baselines.json

@@ -1,0 +1,46 @@
+phase: 5
+name: tools
+description: "Tool-triggering queries: check_registration, search_schedule, escalate_to_human. Healthy-baseline enrichment so tool_composition and tool_call_count have a real normal distribution."
+system_prompt_mode: healthy
+inter_query_delay_ms: 150
+queries:
+  - id: t001
+    text: "Can you check my registration status for alice@example.com?"
+    expect_grounding: false
+    expected_intent_cluster: registration
+  - id: t002
+    text: "Please verify whether bob@acme.io is registered — my payment went through yesterday."
+    expect_grounding: false
+    expected_intent_cluster: registration
+  - id: t003
+    text: "Can you look up the Builders Pass registration for team-lead@startup.in?"
+    expect_grounding: false
+    expected_intent_cluster: registration
+  - id: t004
+    text: "Hi, I need to confirm that anna@nomail.co is on the attendee list."
+    expect_grounding: false
+    expected_intent_cluster: registration
+  - id: t005
+    text: "What AI and ML sessions are happening on the first day?"
+    expect_grounding: false
+    expected_intent_cluster: schedule
+  - id: t006
+    text: "Pull up what's scheduled in the main hall at 2pm."
+    expect_grounding: false
+    expected_intent_cluster: schedule
+  - id: t007
+    text: "Can you give me the schedule of all product strategy sessions?"
+    expect_grounding: false
+    expected_intent_cluster: schedule
+  - id: t008
+    text: "I'm really stuck — my payment failed and I can't register. Please get me a human to help."
+    expect_grounding: false
+    expected_intent_cluster: escalate
+  - id: t009
+    text: "My access code isn't working and I'm at the venue. I need a human to resolve this now."
+    expect_grounding: false
+    expected_intent_cluster: escalate
+  - id: t010
+    text: "I need to speak with an organiser about an accessibility accommodation — please escalate."
+    expect_grounding: false
+    expected_intent_cluster: escalate

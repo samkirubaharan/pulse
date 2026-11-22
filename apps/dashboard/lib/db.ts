@@ -162,11 +162,16 @@ async function runQuery(sql: string): Promise<any[]> {
 }
 
 export async function recentSpans(minutes = 15): Promise<Span[]> {
+  // start_ts is stored as naive TIMESTAMP but the values we insert are UTC
+  // wall-clocks from ISO "...Z" strings. CURRENT_TIMESTAMP is TIMESTAMPTZ.
+  // Comparing the two directly causes DuckDB to re-interpret the naive value
+  // in the server's local tz, shifting it hours into the past/future.
+  // Anchor the stored value to UTC explicitly so the comparison is sound.
   const sql = `
     SELECT trace_id, span_id, parent_span_id, kind,
            start_ts, end_ts, latency_ms, attrs
     FROM spans
-    WHERE start_ts >= (CURRENT_TIMESTAMP - INTERVAL ${minutes} MINUTE)
+    WHERE (start_ts AT TIME ZONE 'UTC') >= (CURRENT_TIMESTAMP - INTERVAL ${minutes} MINUTE)
     ORDER BY start_ts ASC
   `;
   const rows = await runQuery(sql);

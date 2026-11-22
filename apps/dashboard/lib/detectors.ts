@@ -112,6 +112,13 @@ export function aggregatePerTrace(spans: Span[]): PerTrace[] {
       if (typeof s.attrs?.nearest_score === 'number' && agg.nearest_score == null) {
         agg.nearest_score = s.attrs.nearest_score;
       }
+      // Agent emits user.query on retrieval spans (not on llm_call).
+      // Honour it here so downstream detectors that key on user_query work.
+      if (typeof s.attrs?.['user.query'] === 'string' && !agg.user_query) {
+        agg.user_query = s.attrs['user.query'];
+        if (FACTUAL_RE.test(s.attrs['user.query']))
+          agg.has_factual_query = true;
+      }
     }
     if (s.kind === 'tool_call') {
       agg.tool_call_count += 1;
@@ -371,7 +378,7 @@ export function detectKBBypass(spans: Span[], _b: Baselines): Alert[] {
   const last = bypasses[bypasses.length - 1];
   return [
     {
-      detector: 'KB Bypass',
+      detector: 'Retrieval Bypass',
       severity: 'critical',
       headline: `${bypasses.length} factual-looking traces answered with no retrieval span`,
       where_text: last.user_query
@@ -410,7 +417,7 @@ export function detectLowGrounding(spans: Span[], _b: Baselines): Alert[] {
         ? `cluster: ${topCluster[0]} (${topCluster[1]} queries, worst similarity ${last.nearest_score?.toFixed(2)})`
         : null,
       why_text:
-        'Top retrieval similarity below floor — queries are outside what the KB covers. Feeds Novel-Intent inbox.',
+        'Top retrieval similarity below floor — queries are outside what your knowledge base covers. Feeds Novel-Intent inbox.',
       metric_name: 'nearest_score',
       metric_value: last.nearest_score ?? 0,
       metric_mean: GROUNDING_FLOOR,
@@ -432,8 +439,10 @@ const INJECTION_PATTERNS: Array<{ name: string; re: RegExp }> = [
 export function detectPromptInjection(spans: Span[], _b: Baselines): Alert[] {
   const out: Alert[] = [];
   const seen = new Set<string>();
+  // Agent puts user.query on retrieval spans (and sometimes llm_call) — accept
+  // either so we don't silently miss injections depending on the agent impl.
   for (const s of spans) {
-    if (s.kind !== 'llm_call') continue;
+    if (s.kind !== 'llm_call' && s.kind !== 'retrieval') continue;
     const q = s.attrs?.['user.query'];
     if (typeof q !== 'string') continue;
     for (const p of INJECTION_PATTERNS) {
@@ -452,7 +461,7 @@ export function detectPromptInjection(spans: Span[], _b: Baselines): Alert[] {
           metric_value: 1,
           trace_id: s.trace_id,
         });
-        break; // one alert per span
+        break; // one alert per span, per trace
       }
     }
   }

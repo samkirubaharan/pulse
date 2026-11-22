@@ -1,4 +1,6 @@
-# LLM Drift Dashboard — Hackathon Design
+# Pulse
+
+**Observability for LLMs.**
 
 *v4 — five-factor drift mapping integrated. σ-bands replace CUSUM. Changelog at bottom.*
 
