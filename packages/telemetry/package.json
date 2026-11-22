@@ -1,0 +1,19 @@
+{
+  "name": "@pulse/telemetry",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Span SDK for the LLM Drift Demo — hand-rolled telemetry that emits retrieval, tool_call, llm_call and judge spans to the dashboard ingestion endpoint.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc"
+  },
+  "dependencies": {
+    "uuid": "^9.0.1"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.5",
+    "@types/node": "^20.11.30",
+    "@types/uuid": "^9.0.8"
+  }
+}
