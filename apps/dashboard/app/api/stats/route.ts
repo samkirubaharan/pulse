@@ -1,12 +1,16 @@
 // GET /api/stats — computes all 8 Observe tiles from the last 15 min of spans.
-import { NextResponse } from 'next/server';
+//
+// Supports optional ?flow=<healthy|drift|novel|adversarial|tool-heavy|all> to
+// restrict to a single user-journey slice. "all" (default) returns everything.
+import { NextRequest, NextResponse } from 'next/server';
 import { recentSpans } from '@/lib/db';
 import { loadBaselines } from '@/lib/baselines';
 import {
   aggregatePerCall,
   aggregatePerTrace,
 } from '@/lib/detectors';
-import type { StatsResponse, TilePoint, TileStat } from '@/lib/types';
+import { classifyTrace, isFlow } from '@/lib/flows';
+import type { Flow, Span, StatsResponse, TilePoint, TileStat } from '@/lib/types';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -26,12 +30,40 @@ function p95(xs: number[]): number {
   return sorted[idx];
 }
 
-export async function GET() {
-  const spans = await recentSpans(15);
+export async function GET(req: NextRequest) {
+  const flowParam = req.nextUrl.searchParams.get('flow');
+  const flow: Flow = isFlow(flowParam) ? (flowParam as Flow) : 'all';
+
+  let spans = await recentSpans(1440);
   const baselines = loadBaselines();
 
-  const calls = aggregatePerCall(spans);
-  const traces = aggregatePerTrace(spans);
+  let calls = aggregatePerCall(spans);
+  let traces = aggregatePerTrace(spans);
+
+  // Flow filter — restrict traces (and the spans they came from) when the
+  // caller asks for one slice. We classify once, then rebuild the aggregates
+  // from the filtered set so tiles reflect only that flow.
+  if (flow !== 'all') {
+    const callIdx = new Map<
+      string,
+      { output_tokens?: number; input_tokens?: number; latency_ms?: number }
+    >();
+    for (const c of calls) {
+      callIdx.set(c.trace_id, {
+        output_tokens: c.output_tokens,
+        input_tokens: c.input_tokens,
+        latency_ms: c.latency_ms,
+      });
+    }
+    const keepTrace = new Set<string>();
+    for (const t of traces) {
+      if (classifyTrace(t, callIdx.get(t.trace_id) ?? {}, baselines) === flow)
+        keepTrace.add(t.trace_id);
+    }
+    spans = spans.filter((s) => keepTrace.has(s.trace_id));
+    calls = aggregatePerCall(spans);
+    traces = aggregatePerTrace(spans);
+  }
 
   // --- 1. Turn count per task (per-trace) ---
   const turnPoints: TilePoint[] = traces.map((t) => ({
