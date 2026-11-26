@@ -62,20 +62,26 @@ export function classifyTrace(
   if (t.nearest_score != null && t.nearest_score < GROUNDING_FLOOR)
     return 'novel';
 
-  // 3. Drift — any σ-band breach against the primary numeric factors.
-  const checks: Array<[string, number | undefined]> = [
-    ['output_tokens', perCallFor.output_tokens],
-    ['input_tokens', perCallFor.input_tokens],
-    ['latency_ms', perCallFor.latency_ms],
-    ['turn_count', t.turn_count],
+  // 3. Drift — upward σ-band breach on the metrics that matter when they
+  //    rise (tokens, latency, turns). A *below*-band sample on input_tokens
+  //    just means "quieter query than baseline" and shouldn't paint a trace
+  //    red on a healthy dashboard.
+  const checks: Array<[string, number | undefined, 'up' | 'both']> = [
+    ['output_tokens', perCallFor.output_tokens, 'up'],
+    ['input_tokens', perCallFor.input_tokens, 'up'],
+    ['latency_ms', perCallFor.latency_ms, 'up'],
+    ['turn_count', t.turn_count, 'up'],
   ];
   let driftBreaches = 0;
-  for (const [metric, value] of checks) {
+  for (const [metric, value, dir] of checks) {
     if (value == null) continue;
     const b = baselines[metric];
     if (!b || b.n < MIN_SAMPLES_FOR_BAND || b.stddev <= 0) continue;
     const kK = metric === 'latency_ms' ? 3 : K;
-    if (Math.abs(value - b.mean) > kK * b.stddev) driftBreaches++;
+    const hi = b.mean + kK * b.stddev;
+    const lo = b.mean - kK * b.stddev;
+    const breach = dir === 'up' ? value > hi : value > hi || value < lo;
+    if (breach) driftBreaches++;
   }
   if (driftBreaches >= 1) return 'drift';
 
