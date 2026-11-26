@@ -11,7 +11,7 @@ Pulse is two platforms in one surface:
 
 Classic metrics (uptime, p95, error rate) were built for deterministic software. A model that quietly gets dumber still returns HTTP 200 — it just takes more turns, burns more tokens, and leaves a lasting dent in your brand. Pulse surfaces the signals that catch that *before the customer does*, and then helps you turn those observations into the test cases you run before the next release.
 
-![screenshot placeholder](docs/screenshot-observe.png)
+![Observe — green strip, AI Advisor with three grounded buckets, five σ-banded drift tiles, novel-intent inbox](docs/screenshot-observe.png)
 
 ---
 
@@ -41,6 +41,30 @@ Every surface respects a **Flow filter** — the user-journey slice:
 - **Tool-heavy** — more loops, more cost, more places to go wrong
 
 Pick a slice once on any tab; every other tab inherits it via `?flow=<flow>` on the URL.
+
+![Observe filtered to the Drift flow — tiles waiting for data, chip is live red](docs/screenshot-flow-drift.png)
+
+---
+
+## The four surfaces
+
+### Alerts — verdict without a click
+
+Every card carries severity + detector + status, headline, where/why, companion-metric row for paired signals, and the tripped metric's sparkline with σ-band. Ack / resolve / reopen inline, bulk-resolve, CSV export, "Promote to eval" on every card.
+
+![Alerts — grouped by detector, promote-to-eval on every card](docs/screenshot-alerts.png)
+
+### Debug — flow-aware trace list
+
+Sort by latency, tokens, judge, grounding, turns, or cost. Open any row to pin behavioural context (this trace vs σ-band baseline) on the trace detail page.
+
+![Debug — trace explorer with flow filter and sort options](docs/screenshot-debug.png)
+
+### Verify — V&V, observations → eval cases
+
+Promote from Alerts, Novel-Intent, or Advisor. Status workflow: draft → ready → passing/failing/archived. JSONL/JSON export for any eval harness.
+
+![Verify — eval case store with promotion sources](docs/screenshot-verify.png)
 
 ---
 
