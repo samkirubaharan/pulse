@@ -1,32 +1,36 @@
 'use client';
 
-// Nav — client component so we can read the active path and highlight the
-// correct tab. Kept small and self-contained; the layout stays server-rendered
-// (metadata lives there).
+// Nav — Observe / Alerts / Debug / Verify tabs.
+// Verify is V&V (eval cases, test runs). Debug is the trace explorer.
+// Flow filter lives below the nav as a cross-cutting chip bar.
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
 
 interface NavItem {
   href: string;
   label: string;
-  /** When true, this link is disabled unless a trace is active. */
-  conditional?: boolean;
-  title?: string;
+  tagline?: string;
 }
 
 const ITEMS: NavItem[] = [
-  { href: '/', label: 'Observe' },
-  { href: '/alerts', label: 'Alerts' },
+  { href: '/', label: 'Observe', tagline: 'Signal' },
+  { href: '/alerts', label: 'Alerts', tagline: 'Act' },
+  { href: '/debug', label: 'Debug', tagline: 'Zoom in' },
+  { href: '/verify', label: 'Verify', tagline: 'Harden' },
 ];
 
 export default function Nav() {
   const pathname = usePathname() ?? '/';
+  const sp = useSearchParams();
+  const qs = sp.toString();
 
   const isActive = (href: string) => {
     if (href === '/') return pathname === '/';
     return pathname === href || pathname.startsWith(href + '/');
   };
-  const traceActive = pathname.startsWith('/traces/');
+
+  // Preserve the flow filter across tabs.
+  const withQs = (href: string) => (qs ? `${href}?${qs}` : href);
 
   return (
     <nav className="flex items-center gap-1 text-sm" aria-label="Primary">
@@ -35,7 +39,7 @@ export default function Nav() {
         return (
           <Link
             key={it.href}
-            href={it.href}
+            href={withQs(it.href)}
             aria-current={active ? 'page' : undefined}
             className={[
               'relative rounded-md px-3 py-1.5 font-medium transition-colors duration-150',
@@ -43,6 +47,7 @@ export default function Nav() {
                 ? 'bg-sky-50 text-sky-700'
                 : 'text-gray-700 hover:bg-gray-100 hover:text-gray-900',
             ].join(' ')}
+            title={it.tagline}
           >
             {it.label}
             {active && (
@@ -54,25 +59,6 @@ export default function Nav() {
           </Link>
         );
       })}
-      <Link
-        href={traceActive ? pathname : '/traces/latest'}
-        aria-current={traceActive ? 'page' : undefined}
-        className={[
-          'relative rounded-md px-3 py-1.5 font-medium transition-colors duration-150',
-          traceActive
-            ? 'bg-sky-50 text-sky-700'
-            : 'text-gray-700 hover:bg-gray-100 hover:text-gray-900',
-        ].join(' ')}
-        title={traceActive ? undefined : 'Open the most recent trace'}
-      >
-        Debug
-        {traceActive && (
-          <span
-            aria-hidden
-            className="absolute inset-x-2 -bottom-[11px] h-0.5 rounded-full bg-sky-500"
-          />
-        )}
-      </Link>
     </nav>
   );
 }

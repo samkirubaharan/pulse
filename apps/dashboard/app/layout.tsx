@@ -1,6 +1,8 @@
 import type { Metadata } from 'next';
+import { Suspense } from 'react';
 import './globals.css';
 import Nav from '@/components/Nav';
+import FlowFilter from '@/components/FlowFilter';
 
 export const metadata: Metadata = {
   title: 'Pulse — Observability for LLMs',
@@ -42,11 +44,20 @@ export default function RootLayout({
                 </div>
               </div>
             </div>
-            <Nav />
+            <Suspense fallback={<div className="h-7 w-40" />}>
+              <Nav />
+            </Suspense>
           </div>
         </header>
-        <main className="mx-auto w-full max-w-[1600px] px-6 py-8">
-          {children}
+        <main className="mx-auto w-full max-w-[1600px] px-6 py-6">
+          <div className="mb-6">
+            <Suspense fallback={<div className="h-16 rounded-xl border border-gray-200 bg-white" />}>
+              <FlowFilter />
+            </Suspense>
+          </div>
+          <Suspense fallback={<div className="h-64 rounded-xl border border-gray-200 bg-white" />}>
+            {children}
+          </Suspense>
         </main>
       </body>
     </html>

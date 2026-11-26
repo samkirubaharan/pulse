@@ -18,6 +18,9 @@ import Sparkline from '@/components/Sparkline';
 import Tile, { type TileState } from '@/components/Tile';
 import EmptyState from '@/components/EmptyState';
 import TileSkeleton from '@/components/TileSkeleton';
+import AdvisorPanel from '@/components/AdvisorPanel';
+import { useFlow } from '@/lib/flowClient';
+import { FLOW_LABELS } from '@/lib/flows';
 import type { StatsResponse, TilePoint, TileStat } from '@/lib/types';
 
 const REFRESH_MS = 5000;
@@ -133,12 +136,14 @@ export default function ObservePage() {
   const [stats, setStats] = useState<StatsResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [firstLoad, setFirstLoad] = useState(true);
+  const [flow] = useFlow();
 
   useEffect(() => {
     let cancelled = false;
+    const qs = flow === 'all' ? '' : `?flow=${encodeURIComponent(flow)}`;
     const tick = async () => {
       try {
-        const res = await fetch('/api/stats', { cache: 'no-store' });
+        const res = await fetch(`/api/stats${qs}`, { cache: 'no-store' });
         if (!res.ok) throw new Error(`${res.status}`);
         const body = (await res.json()) as StatsResponse;
         if (!cancelled) {
@@ -159,7 +164,7 @@ export default function ObservePage() {
       cancelled = true;
       clearInterval(id);
     };
-  }, []);
+  }, [flow]);
 
   const empty = !stats || stats.traffic.request_count === 0;
   const phase = useMemo(() => derivePhase(stats), [stats]);
@@ -167,7 +172,14 @@ export default function ObservePage() {
   return (
     <div className="flex flex-col gap-8">
       {/* ======================= Page header ========================= */}
-      <PageHeader phase={phase} lastUpdated={stats ? new Date() : null} />
+      <PageHeader
+        phase={phase}
+        lastUpdated={stats ? new Date() : null}
+        flowLabel={flow !== 'all' ? FLOW_LABELS[flow] : null}
+      />
+
+      {/* ======================= AI Advisor ========================== */}
+      <AdvisorPanel />
 
       {/* ======================= Hero: traditional strip ============= */}
       <HeroStrip stats={stats} firstLoad={firstLoad} />
@@ -316,9 +328,11 @@ export default function ObservePage() {
 function PageHeader({
   phase,
   lastUpdated,
+  flowLabel,
 }: {
   phase: Phase;
   lastUpdated: Date | null;
+  flowLabel: string | null;
 }) {
   const meta = PHASE_META[phase];
   return (
@@ -326,6 +340,11 @@ function PageHeader({
       <div>
         <h1 className="text-2xl font-semibold tracking-tight text-gray-900">
           Observe
+          {flowLabel && (
+            <span className="ml-3 align-middle text-sm font-normal text-gray-500">
+              · <span className="font-medium text-gray-700">{flowLabel}</span> slice
+            </span>
+          )}
         </h1>
         <p className="mt-1 max-w-2xl text-sm text-gray-500">
           Your dashboard is green. Your LLM is slipping. Your customer already

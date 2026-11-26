@@ -23,6 +23,7 @@ export interface Baseline {
 export type Baselines = Record<string, Baseline>;
 
 export type Severity = 'info' | 'warn' | 'critical';
+export type AlertStatus = 'open' | 'acked' | 'resolved';
 
 export interface Alert {
   id?: number;
@@ -39,6 +40,67 @@ export interface Alert {
   companion_metric_value?: number | null;
   trace_id?: string | null;
   created_at?: string;
+  status?: AlertStatus;
+  acked_at?: string | null;
+  resolved_at?: string | null;
+  resolution_note?: string | null;
+  flow?: string | null;
+}
+
+export type EvalPriority = 'low' | 'medium' | 'high';
+export type EvalStatus = 'draft' | 'ready' | 'passing' | 'failing' | 'archived';
+export type EvalSource = 'alert' | 'novel_intent' | 'manual' | 'injection';
+
+export interface EvalCase {
+  id?: number;
+  title: string;
+  user_query: string;
+  expected_behavior?: string | null;
+  source: EvalSource;
+  source_ref?: string | null;
+  tags?: string[];
+  priority?: EvalPriority;
+  status?: EvalStatus;
+  trace_id?: string | null;
+  created_at?: string;
+}
+
+export type AdvisorKind =
+  | 'eval_candidate'
+  | 'baseline_rebase'
+  | 'kb_gap'
+  | 'drift_signature'
+  | 'cost_optimisation'
+  | 'coverage_gap';
+
+export type AdvisorStatus = 'open' | 'dismissed' | 'actioned';
+
+export interface AdvisorNote {
+  id?: number;
+  kind: AdvisorKind;
+  title: string;
+  body: string;
+  metric_name?: string | null;
+  severity?: Severity;
+  status?: AdvisorStatus;
+  created_at?: string;
+}
+
+export type Flow =
+  | 'all'
+  | 'healthy'
+  | 'drift'
+  | 'novel'
+  | 'adversarial'
+  | 'tool-heavy';
+
+export interface FlowSummary {
+  flow: Flow;
+  label: string;
+  trace_count: number;
+  mean_judge_score: number | null;
+  mean_grounding: number | null;
+  alert_count: number;
 }
 
 export interface TilePoint {
