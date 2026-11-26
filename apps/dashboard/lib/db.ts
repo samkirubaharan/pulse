@@ -92,6 +92,8 @@ declare global {
   var __duckdbHandle: Handle | undefined;
   // eslint-disable-next-line no-var
   var __duckdbInitPromise: Promise<Handle> | undefined;
+  // eslint-disable-next-line no-var
+  var __duckdbShutdownRegistered: boolean | undefined;
 }
 
 function dbPath(): string {
@@ -127,6 +129,22 @@ export async function getDb(): Promise<Handle> {
   if (!globalThis.__duckdbInitPromise) {
     globalThis.__duckdbInitPromise = init().then((h) => {
       globalThis.__duckdbHandle = h;
+      // Best-effort graceful close on process exit so the WAL is checkpointed
+      // and not left dangling (DuckDB corrupts cleanly otherwise but re-opens
+      // can take seconds to replay). Only register once.
+      if (!globalThis.__duckdbShutdownRegistered) {
+        globalThis.__duckdbShutdownRegistered = true;
+        const shutdown = async () => {
+          try {
+            await h.conn.run('CHECKPOINT');
+          } catch {
+            /* ignore */
+          }
+        };
+        process.once('SIGINT', shutdown);
+        process.once('SIGTERM', shutdown);
+        process.once('beforeExit', shutdown);
+      }
       return h;
     });
   }
