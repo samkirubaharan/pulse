@@ -1,30 +1,30 @@
 'use client';
 
-// Alerts inbox — one card per alert, per the DESIGN.md spec:
-// Headline / Where / Why / Trend sparkline / Scope / Severity badge /
-// Companion metric row for paired signals.
+// Alerts surface — on-call inbox.
 //
-// Verdict first, click second. PM must leave with the story even without
-// opening the trace.
+// Verdict without a click. Click for proof.
+//
+// Enhancements:
+//   - ack / resolve actions on every card (persisted via PATCH /api/alerts/[id])
+//   - status, time-window, severity, detector filters
+//   - grouped-by-detector view (default) or flat list
+//   - bulk resolve + CSV export
+//   - "Promote to eval" directly from an alert → routes to /verify
+
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import {
-  Card,
-  Text,
-  Title,
-  Badge,
-  Metric,
-} from '@tremor/react';
+import { Card, Text, Title, Badge, Metric } from '@tremor/react';
 import Sparkline from '@/components/Sparkline';
+import { useFlow } from '@/lib/flowClient';
+import { FLOW_LABELS } from '@/lib/flows';
 import type { Alert, TilePoint } from '@/lib/types';
 
 const REFRESH_MS = 5000;
 
-// --- Filter chip taxonomy ---------------------------------------------------
-
 type SeverityFilter = 'all' | 'critical' | 'warn' | 'info';
+type StatusFilter = 'open' | 'all' | 'acked' | 'resolved';
+type ViewMode = 'grouped' | 'flat';
 
-// Canonical detector list from DESIGN.md §Detectors (8).
 const DETECTOR_FILTERS = [
   'All',
   'Chattiness',
@@ -38,9 +38,6 @@ const DETECTOR_FILTERS = [
 ] as const;
 type DetectorFilter = (typeof DETECTOR_FILTERS)[number];
 
-// Loose match — detectors come from the server as free-form strings. We map a
-// chip label to a keyword set so "Cache" catches "Cache invalidation",
-// "Behavioural" catches "Behavioural shift", etc.
 const DETECTOR_KEYWORDS: Record<Exclude<DetectorFilter, 'All'>, string[]> = {
   Chattiness: ['chatt'],
   Cache: ['cache'],
@@ -52,8 +49,6 @@ const DETECTOR_KEYWORDS: Record<Exclude<DetectorFilter, 'All'>, string[]> = {
   Injection: ['inject', 'prompt-inj', 'prompt_inj'],
 };
 
-// Detectors that are inherently paired-signal (DESIGN.md: Cache invalidation
-// needs input_tokens AND cache_read_tokens on one sparkline).
 function isPairedSignal(detector: string, alert: Alert): boolean {
   if (alert.companion_metric_name && alert.companion_metric_value != null)
     return true;
@@ -66,16 +61,14 @@ function severityColor(sev: Alert['severity']) {
   return 'blue';
 }
 
-function severityStripe(sev: Alert['severity']): string {
+function severityStripe(sev: Alert['severity'], status: string): string {
+  if (status === 'resolved') return 'border-l-4 border-l-emerald-500 opacity-70';
+  if (status === 'acked') return 'border-l-4 border-l-slate-500 opacity-85';
   if (sev === 'critical') return 'border-l-4 border-l-red-500';
   if (sev === 'warn') return 'border-l-4 border-l-amber-500';
   return 'border-l-4 border-l-sky-500';
 }
 
-// --- Synthetic trend series -------------------------------------------------
-// We don't re-query /api/stats per alert — for a 60s demo, a representative
-// shape generated from (mean, stddev, value) is better than N fetches. The
-// band is drawn directly from the alert's baseline fields.
 function syntheticSeries(a: Alert): TilePoint[] {
   const base = a.metric_mean ?? a.metric_value ?? 0;
   const sd = a.metric_stddev ?? Math.max(1, Math.abs(base) * 0.1);
@@ -89,7 +82,6 @@ function syntheticSeries(a: Alert): TilePoint[] {
       value: base + noise,
     });
   }
-  // Last 4 samples drift from baseline toward current value — the "bump".
   if (a.metric_value != null) {
     for (let j = 0; j < 4; j++) {
       pts[pts.length - 4 + j].value =
@@ -99,27 +91,24 @@ function syntheticSeries(a: Alert): TilePoint[] {
   return pts;
 }
 
-// Synthetic companion line for paired signals — mirrors the primary bump in
-// the opposite direction (classic cache-invalidation shape: input ↑ while
-// cache_read ↓).
 function syntheticCompanionSeries(
   a: Alert,
   primary: TilePoint[],
 ): TilePoint[] | null {
   if (a.companion_metric_value == null) return null;
-  const companionBase = a.companion_metric_value * 1.4; // approximate "healthy" level
+  const companionBase = a.companion_metric_value * 1.4;
   const n = primary.length;
   const out: TilePoint[] = [];
   for (let i = 0; i < n; i++) {
     const t = primary[i].t;
     const drift = i >= n - 4 ? (i - (n - 5)) / 4 : 0;
-    const v = companionBase + (a.companion_metric_value - companionBase) * drift;
+    const v =
+      companionBase + (a.companion_metric_value - companionBase) * drift;
     out.push({ t, value: v });
   }
   return out;
 }
 
-// ECG line — same path the nav logo uses. Kept local so we don't touch layout.tsx.
 function PulseECG({ className = '' }: { className?: string }) {
   return (
     <svg
@@ -137,42 +126,47 @@ function PulseECG({ className = '' }: { className?: string }) {
   );
 }
 
-// ---------------------------------------------------------------------------
-
 export default function AlertsPage() {
+  const [flow] = useFlow();
   const [alerts, setAlerts] = useState<Alert[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [severityFilter, setSeverityFilter] = useState<SeverityFilter>('all');
   const [detectorFilter, setDetectorFilter] = useState<DetectorFilter>('All');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('open');
+  const [minutes, setMinutes] = useState(1440);
+  const [view, setView] = useState<ViewMode>('grouped');
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [busy, setBusy] = useState<Record<number, 'ack' | 'resolve' | 'reopen'>>({});
+
+  const refresh = async () => {
+    try {
+      const qs = new URLSearchParams();
+      if (flow !== 'all') qs.set('flow', flow);
+      if (statusFilter !== 'all') qs.set('status', statusFilter);
+      qs.set('minutes', String(minutes));
+      const res = await fetch(`/api/alerts?${qs.toString()}`, {
+        cache: 'no-store',
+      });
+      if (!res.ok) throw new Error(`${res.status}`);
+      const body = (await res.json()) as Alert[];
+      const sorted = [...body].sort((a, b) => {
+        const ta = a.created_at ? Date.parse(a.created_at) : 0;
+        const tb = b.created_at ? Date.parse(b.created_at) : 0;
+        return tb - ta;
+      });
+      setAlerts(sorted);
+      setError(null);
+    } catch (e: any) {
+      setError(e?.message ?? 'fetch failed');
+    }
+  };
 
   useEffect(() => {
-    let cancelled = false;
-    const tick = async () => {
-      try {
-        const res = await fetch('/api/alerts', { cache: 'no-store' });
-        if (!res.ok) throw new Error(`${res.status}`);
-        const body = (await res.json()) as Alert[];
-        if (!cancelled) {
-          // Newest first — belt-and-braces; the API already orders DESC.
-          const sorted = [...body].sort((a, b) => {
-            const ta = a.created_at ? Date.parse(a.created_at) : 0;
-            const tb = b.created_at ? Date.parse(b.created_at) : 0;
-            return tb - ta;
-          });
-          setAlerts(sorted);
-          setError(null);
-        }
-      } catch (e: any) {
-        if (!cancelled) setError(e?.message ?? 'fetch failed');
-      }
-    };
-    tick();
-    const id = setInterval(tick, REFRESH_MS);
-    return () => {
-      cancelled = true;
-      clearInterval(id);
-    };
-  }, []);
+    refresh();
+    const id = setInterval(refresh, REFRESH_MS);
+    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [flow, statusFilter, minutes]);
 
   const filtered = useMemo(() => {
     if (!alerts) return null;
@@ -188,15 +182,78 @@ export default function AlertsPage() {
     });
   }, [alerts, severityFilter, detectorFilter]);
 
-  // Counts for the severity chips (unfiltered pool).
   const sevCounts = useMemo(() => {
-    const counts = { all: 0, critical: 0, warn: 0, info: 0 };
+    const counts = { all: 0, critical: 0, warn: 0, info: 0 } as Record<
+      SeverityFilter,
+      number
+    >;
     for (const a of alerts ?? []) {
       counts.all++;
       counts[a.severity]++;
     }
     return counts;
   }, [alerts]);
+
+  const grouped = useMemo(() => {
+    if (!filtered) return null;
+    const m = new Map<string, Alert[]>();
+    for (const a of filtered) {
+      const k = a.detector;
+      let arr = m.get(k);
+      if (!arr) {
+        arr = [];
+        m.set(k, arr);
+      }
+      arr.push(a);
+    }
+    return [...m.entries()].sort((a, b) => b[1].length - a[1].length);
+  }, [filtered]);
+
+  const toggleSelect = (id?: number) => {
+    if (!id) return;
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const act = async (
+    a: Alert,
+    action: 'ack' | 'resolve' | 'reopen',
+  ) => {
+    if (!a.id) return;
+    setBusy((prev) => ({ ...prev, [a.id!]: action }));
+    try {
+      await fetch(`/api/alerts/${a.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          status:
+            action === 'ack' ? 'acked' : action === 'resolve' ? 'resolved' : 'open',
+        }),
+      });
+      await refresh();
+    } finally {
+      setBusy((prev) => {
+        const next = { ...prev };
+        delete next[a.id!];
+        return next;
+      });
+    }
+  };
+
+  const bulkResolve = async () => {
+    if (selected.size === 0) return;
+    await fetch('/api/alerts/bulk', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: [...selected] }),
+    });
+    setSelected(new Set());
+    await refresh();
+  };
 
   if (alerts == null) {
     return <div className="text-sm text-gray-500">Loading alerts…</div>;
@@ -207,17 +264,33 @@ export default function AlertsPage() {
       {/* Header */}
       <div className="flex items-end justify-between">
         <div>
-          <Title>Alerts</Title>
+          <Title>
+            Alerts
+            {flow !== 'all' && (
+              <span className="ml-3 text-sm font-normal text-gray-500">
+                · <span className="font-medium text-gray-700">{FLOW_LABELS[flow]}</span>{' '}
+                slice
+              </span>
+            )}
+          </Title>
           <Text className="italic text-sky-700">
             Verdict without a click. Click for proof.
           </Text>
         </div>
-        <div className="flex items-center gap-2 text-xs text-gray-400">
-          <span className="relative flex h-2 w-2">
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-sky-400 opacity-60" />
-            <span className="relative inline-flex h-2 w-2 rounded-full bg-sky-500" />
-          </span>
-          refreshes every 5s
+        <div className="flex items-center gap-2">
+          <a
+            href="/api/alerts/export?format=csv"
+            className="rounded-md border border-gray-200 bg-white px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50"
+          >
+            Export CSV
+          </a>
+          <div className="flex items-center gap-2 text-xs text-gray-400">
+            <span className="relative flex h-2 w-2">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-sky-400 opacity-60" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-sky-500" />
+            </span>
+            refreshes every 5s
+          </div>
         </div>
       </div>
 
@@ -227,8 +300,53 @@ export default function AlertsPage() {
         </div>
       )}
 
-      {/* Filter chips */}
+      {/* Filter bar */}
       <div className="flex flex-col gap-2 rounded-lg border border-gray-200 bg-white p-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="w-16 text-xs font-medium uppercase tracking-wide text-gray-500">
+            Status
+          </span>
+          {(['open', 'acked', 'resolved', 'all'] as const).map((s) => (
+            <Chip
+              key={s}
+              active={statusFilter === s}
+              onClick={() => setStatusFilter(s)}
+              tone={
+                s === 'resolved' ? 'green' : s === 'acked' ? 'slate' : 'sky'
+              }
+              label={s[0].toUpperCase() + s.slice(1)}
+            />
+          ))}
+          <span className="ml-4 w-16 text-xs font-medium uppercase tracking-wide text-gray-500">
+            Window
+          </span>
+          <select
+            value={minutes}
+            onChange={(e) => setMinutes(Number(e.target.value))}
+            className="rounded-md border border-gray-200 bg-white px-3 py-1 text-xs text-gray-700"
+          >
+            <option value={15}>15 min</option>
+            <option value={60}>1 hour</option>
+            <option value={360}>6 hours</option>
+            <option value={1440}>24 hours</option>
+            <option value={10080}>7 days</option>
+          </select>
+          <span className="ml-4 w-16 text-xs font-medium uppercase tracking-wide text-gray-500">
+            View
+          </span>
+          <Chip
+            active={view === 'grouped'}
+            onClick={() => setView('grouped')}
+            tone="sky"
+            label="Grouped"
+          />
+          <Chip
+            active={view === 'flat'}
+            onClick={() => setView('flat')}
+            tone="sky"
+            label="Flat"
+          />
+        </div>
         <div className="flex flex-wrap items-center gap-2">
           <span className="w-16 text-xs font-medium uppercase tracking-wide text-gray-500">
             Severity
@@ -266,9 +384,29 @@ export default function AlertsPage() {
             />
           ))}
         </div>
+        {selected.size > 0 && (
+          <div className="flex items-center gap-2 rounded-md bg-sky-50 px-3 py-2 ring-1 ring-sky-200">
+            <span className="text-xs font-medium text-sky-800">
+              {selected.size} selected
+            </span>
+            <button
+              type="button"
+              onClick={bulkResolve}
+              className="rounded-md border border-sky-200 bg-white px-2 py-0.5 text-xs font-medium text-sky-700 hover:bg-sky-100"
+            >
+              Resolve selected
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelected(new Set())}
+              className="text-xs text-sky-700/80 hover:underline"
+            >
+              clear
+            </button>
+          </div>
+        )}
       </div>
 
-      {/* Empty state */}
       {(filtered?.length ?? 0) === 0 ? (
         <Card className="mx-auto max-w-xl">
           <div className="flex flex-col items-center gap-3 py-8 text-center">
@@ -284,18 +422,53 @@ export default function AlertsPage() {
             <Badge color="emerald">clean</Badge>
           </div>
         </Card>
+      ) : view === 'grouped' ? (
+        <div className="flex flex-col gap-5">
+          {grouped!.map(([detector, items]) => (
+            <section key={detector}>
+              <div className="mb-2 flex items-center justify-between">
+                <h3 className="text-sm font-semibold uppercase tracking-wider text-gray-600">
+                  {detector}
+                  <span className="ml-2 inline-flex min-w-[1.5rem] justify-center rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] tabular-nums text-gray-600">
+                    {items.length}
+                  </span>
+                </h3>
+                <span className="text-xs text-gray-400">
+                  worst: {items[0]?.severity ?? '—'}
+                </span>
+              </div>
+              <div className="grid grid-cols-1 gap-4">
+                {items.map((a) => (
+                  <AlertCard
+                    key={a.id ?? `${a.detector}-${a.created_at}`}
+                    alert={a}
+                    selected={!!a.id && selected.has(a.id)}
+                    onToggleSelect={() => toggleSelect(a.id)}
+                    onAct={act}
+                    busyAction={a.id ? busy[a.id] : undefined}
+                  />
+                ))}
+              </div>
+            </section>
+          ))}
+        </div>
       ) : (
         <div className="grid grid-cols-1 gap-4">
           {filtered!.map((a) => (
-            <AlertCard key={a.id ?? `${a.detector}-${a.created_at}`} alert={a} />
+            <AlertCard
+              key={a.id ?? `${a.detector}-${a.created_at}`}
+              alert={a}
+              selected={!!a.id && selected.has(a.id)}
+              onToggleSelect={() => toggleSelect(a.id)}
+              onAct={act}
+              busyAction={a.id ? busy[a.id] : undefined}
+            />
           ))}
         </div>
       )}
     </div>
   );
 }
-
-// --- Chip -------------------------------------------------------------------
 
 function Chip({
   active,
@@ -308,13 +481,17 @@ function Chip({
   onClick: () => void;
   label: string;
   count?: number;
-  tone: 'red' | 'amber' | 'sky' | 'gray';
+  tone: 'red' | 'amber' | 'sky' | 'gray' | 'green' | 'slate';
 }) {
   const activeCls =
     tone === 'red'
       ? 'bg-red-50 text-red-700 ring-red-200'
       : tone === 'amber'
       ? 'bg-amber-50 text-amber-800 ring-amber-200'
+      : tone === 'green'
+      ? 'bg-emerald-50 text-emerald-700 ring-emerald-200'
+      : tone === 'slate'
+      ? 'bg-slate-100 text-slate-800 ring-slate-300'
       : tone === 'sky'
       ? 'bg-sky-50 text-sky-700 ring-sky-200'
       : 'bg-gray-100 text-gray-800 ring-gray-300';
@@ -342,9 +519,19 @@ function Chip({
   );
 }
 
-// --- Alert card -------------------------------------------------------------
-
-function AlertCard({ alert: a }: { alert: Alert }) {
+function AlertCard({
+  alert: a,
+  selected,
+  onToggleSelect,
+  onAct,
+  busyAction,
+}: {
+  alert: Alert;
+  selected: boolean;
+  onToggleSelect: () => void;
+  onAct: (a: Alert, action: 'ack' | 'resolve' | 'reopen') => void;
+  busyAction?: 'ack' | 'resolve' | 'reopen';
+}) {
   const series = syntheticSeries(a);
   const companion = syntheticCompanionSeries(a, series);
   const paired = isPairedSignal(a.detector, a);
@@ -354,9 +541,6 @@ function AlertCard({ alert: a }: { alert: Alert }) {
       ? { mean: a.metric_mean, stddev: a.metric_stddev, n: 20 }
       : undefined;
 
-  // Merge companion values back onto the primary series points so Sparkline
-  // can render both lines from one dataset (Sparkline supports `companion`
-  // field on TilePoint — see types.ts).
   const mergedSeries: TilePoint[] = companion
     ? series.map((p, i) => ({ ...p, companion: companion[i]?.value }))
     : series;
@@ -366,32 +550,52 @@ function AlertCard({ alert: a }: { alert: Alert }) {
       ? '#dc2626'
       : a.severity === 'warn'
       ? '#d97706'
-      : '#0284c7'; // sky-600 — matches brand
+      : '#0284c7';
 
-  // Compute a human delta for the headline chip.
   const deltaPct =
     a.metric_value != null && a.metric_mean != null && a.metric_mean !== 0
       ? Math.round(((a.metric_value - a.metric_mean) / a.metric_mean) * 100)
       : null;
 
+  const status = a.status ?? 'open';
+
+  // Build eval-promotion link
+  const promoteParams = new URLSearchParams({
+    from: 'alert',
+    title: a.headline,
+    body: a.why_text ?? '',
+    source: 'alert',
+    source_ref: a.id ? `alert:${a.id}` : a.detector,
+  });
+  if (a.trace_id) promoteParams.set('trace_id', a.trace_id);
+
   return (
     <Card
-      className={`${severityStripe(a.severity)} transition hover:shadow-md`}
+      className={`${severityStripe(a.severity, status)} transition hover:shadow-md`}
     >
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between lg:gap-6">
-        {/* ---- Left: the verdict --------------------------------------- */}
         <div className="min-w-0 flex-1">
-          {/* Severity + detector badge row */}
+          {/* Severity + status row */}
           <div className="flex flex-wrap items-center gap-2">
+            {a.id && (
+              <label className="inline-flex items-center gap-1 text-[11px] text-gray-500">
+                <input
+                  type="checkbox"
+                  checked={selected}
+                  onChange={onToggleSelect}
+                  className="h-3.5 w-3.5 rounded border-gray-300 text-sky-600 focus:ring-sky-500"
+                />
+                <span className="sr-only">select alert</span>
+              </label>
+            )}
             <Badge color={severityColor(a.severity)}>
               {a.severity.toUpperCase()}
             </Badge>
             <span className="text-xs font-medium uppercase tracking-wide text-gray-500">
               {a.detector}
             </span>
-            {paired && (
-              <Badge color="amber">paired signal</Badge>
-            )}
+            <StatusChip status={status} />
+            {paired && <Badge color="amber">paired signal</Badge>}
             {deltaPct != null && (
               <span
                 className={`text-xs tabular-nums ${
@@ -404,23 +608,18 @@ function AlertCard({ alert: a }: { alert: Alert }) {
             )}
           </div>
 
-          {/* Headline */}
           <Title className="mt-1.5 leading-snug">{a.headline}</Title>
 
-          {/* Where / Why — the two context lines */}
           <div className="mt-3 flex flex-col gap-1.5">
-            {a.where_text ? (
-              <Row label="Where" value={a.where_text} />
-            ) : null}
-            {a.why_text ? (
+            {a.where_text && <Row label="Where" value={a.where_text} />}
+            {a.why_text && (
               <Row
                 label="Why"
                 value={<span className="italic text-gray-600">{a.why_text}</span>}
               />
-            ) : null}
+            )}
           </div>
 
-          {/* Companion metric row — paired-signal spec */}
           {a.companion_metric_name && a.companion_metric_value != null && (
             <div className="mt-3 flex flex-wrap items-center gap-2 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-900 ring-1 ring-amber-200">
               <span className="font-medium">Companion metric:</span>
@@ -436,24 +635,72 @@ function AlertCard({ alert: a }: { alert: Alert }) {
             </div>
           )}
 
-          {/* Scope row — N similar traces + link to Debug */}
+          {a.resolution_note && (
+            <div className="mt-3 rounded-md bg-emerald-50 px-3 py-2 text-xs text-emerald-900 ring-1 ring-emerald-200">
+              <span className="font-medium">Resolution: </span>
+              {a.resolution_note}
+            </div>
+          )}
+
+          {/* Actions */}
           <div className="mt-4 flex flex-wrap items-center gap-2 text-xs">
             {a.trace_id ? (
               <Link
                 href={`/traces/${a.trace_id}?from=alert`}
                 className="inline-flex items-center gap-1 rounded-md border border-sky-200 bg-sky-50 px-2.5 py-1 font-medium text-sky-700 hover:bg-sky-100"
               >
-                Open latest trace
+                Open trace
                 <span aria-hidden>→</span>
               </Link>
             ) : (
               <span className="text-gray-400">no trace link</span>
             )}
-            {/* TODO(api): /api/alerts doesn't expose a "similar trace count"
-                yet — we approximate as "most recent of N" and show the single
-                trace link. Add `similar_count` to the Alert shape to populate
-                this honestly. */}
-            <span className="text-gray-500">Scope: most recent trace</span>
+            <Link
+              href={`/verify?${promoteParams.toString()}`}
+              className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-1 font-medium text-emerald-700 hover:bg-emerald-100"
+            >
+              Promote to eval
+            </Link>
+            {status === 'open' && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => onAct(a, 'ack')}
+                  disabled={!!busyAction}
+                  className="rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1 font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-50"
+                >
+                  {busyAction === 'ack' ? 'acking…' : 'Ack'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onAct(a, 'resolve')}
+                  disabled={!!busyAction}
+                  className="rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-1 font-medium text-emerald-700 hover:bg-emerald-100 disabled:opacity-50"
+                >
+                  {busyAction === 'resolve' ? 'resolving…' : 'Resolve'}
+                </button>
+              </>
+            )}
+            {status === 'acked' && (
+              <button
+                type="button"
+                onClick={() => onAct(a, 'resolve')}
+                disabled={!!busyAction}
+                className="rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-1 font-medium text-emerald-700 hover:bg-emerald-100 disabled:opacity-50"
+              >
+                {busyAction === 'resolve' ? 'resolving…' : 'Resolve'}
+              </button>
+            )}
+            {status !== 'open' && (
+              <button
+                type="button"
+                onClick={() => onAct(a, 'reopen')}
+                disabled={!!busyAction}
+                className="rounded-md border border-gray-200 bg-white px-2.5 py-1 font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+              >
+                Reopen
+              </button>
+            )}
             {a.created_at && (
               <span className="text-gray-400">
                 · fired {formatRelative(a.created_at)}
@@ -462,7 +709,6 @@ function AlertCard({ alert: a }: { alert: Alert }) {
           </div>
         </div>
 
-        {/* ---- Right: the trend --------------------------------------- */}
         <div className="w-full shrink-0 lg:w-72">
           <div className="flex items-baseline justify-between">
             <Text className="text-xs uppercase tracking-wide">
@@ -505,7 +751,24 @@ function AlertCard({ alert: a }: { alert: Alert }) {
   );
 }
 
-// --- Small helpers ----------------------------------------------------------
+function StatusChip({ status }: { status: string }) {
+  const cls =
+    status === 'resolved'
+      ? 'bg-emerald-50 text-emerald-700 ring-emerald-200'
+      : status === 'acked'
+      ? 'bg-slate-50 text-slate-700 ring-slate-300'
+      : 'bg-sky-50 text-sky-700 ring-sky-200';
+  return (
+    <span
+      className={[
+        'inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ring-1',
+        cls,
+      ].join(' ')}
+    >
+      {status}
+    </span>
+  );
+}
 
 function Row({ label, value }: { label: string; value: React.ReactNode }) {
   return (
