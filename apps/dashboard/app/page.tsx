@@ -12,6 +12,7 @@
 // final tile shape so there's no layout jump. Once connected, if the request
 // count is still zero we swap to a friendly "Waiting for spans" empty state.
 import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { BarChart } from '@tremor/react';
 import BandChart from '@/components/BandChart';
 import Sparkline from '@/components/Sparkline';
@@ -936,25 +937,43 @@ function NovelIntentTile({
         </div>
       ) : (
         <ul className="max-h-72 divide-y divide-gray-100 overflow-auto rounded-md border border-gray-100">
-          {items.map((q, i) => (
-            <li
-              key={i}
-              className="flex items-start justify-between gap-3 px-3 py-2.5 transition-colors hover:bg-gray-50"
-            >
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm text-gray-900">{q.query}</p>
-                <p className="mt-0.5 text-[11px] text-gray-500">
-                  nearest:{' '}
-                  <span className="font-mono text-gray-600">
-                    {q.nearest_doc}
+          {items.map((q, i) => {
+            const promoteHref = `/verify?${new URLSearchParams({
+              from: 'novel_intent',
+              source: 'novel_intent',
+              title: `KB gap: ${q.nearest_doc}`,
+              user_query: q.query,
+              expected: `Agent should either (a) ground this answer in a new KB entry, or (b) gracefully defer. Top retrieval similarity ${q.score.toFixed(2)} is below the 0.45 floor.`,
+              source_ref: `novel_intent:${q.nearest_doc}`,
+            }).toString()}`;
+            return (
+              <li
+                key={i}
+                className="flex items-start justify-between gap-3 px-3 py-2.5 transition-colors hover:bg-gray-50"
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm text-gray-900">{q.query}</p>
+                  <p className="mt-0.5 text-[11px] text-gray-500">
+                    nearest:{' '}
+                    <span className="font-mono text-gray-600">
+                      {q.nearest_doc}
+                    </span>
+                  </p>
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  <Link
+                    href={promoteHref}
+                    className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 hover:bg-emerald-100"
+                  >
+                    → eval
+                  </Link>
+                  <span className="inline-flex items-center rounded-md bg-amber-50 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-amber-700 ring-1 ring-amber-200">
+                    sim {q.score.toFixed(2)}
                   </span>
-                </p>
-              </div>
-              <span className="inline-flex shrink-0 items-center rounded-md bg-amber-50 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-amber-700 ring-1 ring-amber-200">
-                sim {q.score.toFixed(2)}
-              </span>
-            </li>
-          ))}
+                </div>
+              </li>
+            );
+          })}
         </ul>
       )}
     </Tile>
